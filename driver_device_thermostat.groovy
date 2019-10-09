@@ -9,6 +9,7 @@ metadata {
 		capability "Thermostat Heating Setpoint"
 		capability "Temperature Measurement"
 		capability "Refresh"
+		capability "Switch"
 
 		command "heatingSetpointDown"
 		command "heatingSetpointUp"
@@ -24,16 +25,34 @@ metadata {
 	tiles(scale: 2) {
 		multiAttributeTile(name:"temperature", type: "thermostat", width: 6, height: 4){
 			tileAttribute ("device.temperature", key: "PRIMARY_CONTROL") {
-				attributeState("temperatureMeasurement", label:'${currentValue}°',backgroundColor:"#44B621")
+				attributeState("temperatureMeasurement", label:'${currentValue}°',backgroundColor:"#44b621")
 			}
 			
-			// tileAttribute("device.heatingSetpoint", key: "VALUE_CONTROL") {
-			// 	attributeState("VALUE_UP", action: "heatingSetpointUp")
-			// 	attributeState("VALUE_DOWN", action: "heatingSetpointDown")
-			// }
-            tileAttribute ("device.thermostatOperatingState", key: "SECONDARY_CONTROL") {
-           		attributeState("thermostatOperatingState", label:'\nHeating power: ${currentValue}%')
-            }
+            // tileAttribute ("device.thermostatOperatingState", key: "OPERATING_STATE") {
+        	// 	attributeState("thermostatOperatingState", label:"",,backgroundColors:[
+			// 		[value: 0, color: "#44b621"],
+			// 		[value: 1, color: "#e86d13"],
+			// 		[value: 100, color: "#e86d13"],
+			// 	])
+        	// 	// attributeState("Heating percentage : 100%", backgroundColor:"#e86d13", defaultState: true)
+           	// 	// attributeState("thermostatOperatingState", value: 'Heating power: ${currentValue}%',
+			// 	// backgroundColors:[
+			// 	// 	[value: "0%", color: "#44b621"],
+			// 	// 	[value: "100% ", color: "#e86d13"]
+			// 	// ])
+            // }
+			
+			tileAttribute("device.switch", key: "OPERATING_STATE",inactiveLabel: true) {
+				attributeState("Heat",backgroundColor:"#e86d13")
+				attributeState("Idle",backgroundColor:"#44b621")
+			}
+			
+			tileAttribute("device.thermostatOperatingState", key: "SECONDARY_CONTROL") {
+				attributeState("thermostatOperatingState", label:'${currentValue}%', unit:"%", icon:"st.Weather.weather2", defaultState: true)
+			}
+			tileAttribute("device.trackDescription", key: "MARQUEE") {
+				attributeState("trackDescription", label:"${currentValue}", defaultState: true)
+			}
 		}
 
 		// //Heating Set Point Controls
@@ -106,7 +125,7 @@ def refresh(){
 
 def StartCommunicationWithServer(data){
 	// log.info "Action \"${data?.action}\" received from Service Manager with session [${data?.session}]"
-	if(!state.deviceId || state.deviceId == true || state.deviceName!= settings.devicename || state.locationName!= settings.locationname ){
+	if( !state.deviceId || state.deviceId == true || state.deviceName != settings.devicename.toLowerCase().replaceAll("\\s", "") || state.locationName != settings.locationname.toLowerCase().replaceAll("\\s", "") ){
 		state.deviceId = deviceId(data?.session)
 	}
 	def params = [
@@ -120,21 +139,24 @@ def StartCommunicationWithServer(data){
 		switch(data.action){
 			case "heatingSetpointUp":
 				params.body = ['roomSetpoint' : state.heatingSetpoint.toDouble() + 0.5]
+				params.body.floorSetpoint = params.body.roomSetpoint
 				params.contentType = 'application/json'
 				requestApi("setDevice", params);
 				break;
 			case "heatingSetpointDown":
 				params.body = ['roomSetpoint' : state.heatingSetpoint.toDouble() - 0.5]
+				params.body.floorSetpoint = params.body.roomSetpoint
 				params.contentType = 'application/json'
 				requestApi("setDevice", params);
 				break;
 			case "setHeatingSetpoint":
 				params.body = ['roomSetpoint' : FormatTemp(data.value,true)]
+				params.body.floorSetpoint = params.body.roomSetpoint
 				params.contentType = 'application/json'
 				requestApi("setDevice", params);
 				break;
 			case "refresh":
-				params.query = ['attributes' : "roomTemperature,roomSetpoint,outputPercentDisplay"]
+				params.query = ['attributes' : "airFloorMode,floorTemperature,floorSetpoint,roomTemperature,roomSetpoint,outputPercentDisplay"]
 				requestApi("deviceData", params);
 				break;
 			default: 
@@ -146,49 +168,56 @@ def StartCommunicationWithServer(data){
 def deviceId(session){
 	data.deviceId = null
 	locationId(session)
-	def params = [
-		uri: "${data.server}",
-        path: "devices",
-       	requestContentType: "application/json, text/javascript, */*; q=0.01",
-        headers: ['Session-Id' : session]
-   	]
-	if(data?.locationId){
-        params.query = ['location$id' : data.locationId]
-	}
-
-   	requestApi("deviceList", params);
-
-    def deviceName=settings.devicename
-    if (deviceName!=null){
-    	deviceName=deviceName.toLowerCase().replaceAll("\\s", "")
-    }
-	data?.deviceId = null
-	data.devices_list.each{var ->
-		try{
-			def name_device=var.name
-			name_device=name_device.toLowerCase().replaceAll("\\s", "")
-			if(name_device==deviceName){
-					data.deviceId=var.id
-					data.error=false
-					state.deviceName = deviceName;
-					return data.deviceId;
-			}else{
-				data.code=4001
-			}
-		}catch(e){
-			data.code=4003
+	if(data.locationId){
+		def params = [
+			uri: "${data.server}",
+			path: "devices",
+			requestContentType: "application/json, text/javascript, */*; q=0.01",
+			headers: ['Session-Id' : session]
+		]
+		if(data?.locationId){
+			params.query = ['location$id' : data.locationId]
 		}
-    }
-    if (!data?.deviceId || data.error){
-    	data.error=error(data.code)
-    	sendEvent(name: 'error', value: "${data.error}")
-		data.deviceId=null;
-    	data.error=true
-    }
-	else{
-		data.deviceId
+
+		requestApi("deviceList", params);
+
+		def deviceName=settings.devicename
+		if (deviceName!=null){
+			deviceName=deviceName.toLowerCase().replaceAll("\\s", "")
+		}
+		data?.deviceId = null
+		data.devices_list.each{var ->
+			try{
+				def name_device=var.name
+				name_device=name_device.toLowerCase().replaceAll("\\s", "")
+				if(name_device==deviceName){
+					data.deviceId=var.id
+						data.error=false
+						state.deviceName = deviceName;
+						state.deviceLocation = settings?.locationname.toLowerCase().replaceAll("\\s", "");
+						return data.deviceId;
+				}else{
+					data.code=4001
+				}
+			}catch(e){
+				data.code=4003
+			}
+		}
+		if (!data?.deviceId || data.error){
+			data.error=error(data.code)
+			sendEvent(name: 'error', value: "${data.error}")
+			data.deviceId=null;
+			log.warn("${data.error}")
+			data.error=true
+		}
+		else{
+			data.deviceId
+		}
+		return data.deviceId
+	}else{
+		log.warn("${error(3001)}")
+		return null;
 	}
-	return data.deviceId
 }
 
 
@@ -200,35 +229,34 @@ def locationId(session){
         headers: ['Session-Id' : session]
     ]
     requestApi("locationList",params)
-    def locationName=settings.locationname
+    def locationName=settings?.locationname
 	if(locationName){
-		locationName=locationName.toLowerCase().replaceAll("\\s", "")
+		locationName = locationName.toLowerCase().replaceAll("\\s", "")
 	}
+	data.locationId = null
 	data.location_list.each{var ->    	
     	def name_location
 		try{
-			var.name
-			name_location=var.name
+			name_location = var.name
 		}catch(e){
 			log.error(var)
 		}	
 		if(name_location){
-    		name_location=name_location.toLowerCase().replaceAll("\\s", "")
+    		name_location = name_location.toLowerCase().replaceAll("\\s", "")
 		}else{
 			name_location = "INVALID LOCATION"
 		}
 
     	if(name_location==locationName){
-    		data.locationId=var.id
+    		data.locationId = var.id
     		// log.info("Location ID is :: ${data.locationId}")
 			state.locationName = locationName
     		data.error=null
     	}
     }
 	
-    if (data?.locationId==null){
-    	sendEvent(name: 'error', value: "${error(1)}")
-    	log.error("No location with this name or request error")
+    if (!data.locationId){
+    	sendEvent(name: 'error', value: "${error(3001)}")
     	data.error=true
     }
 }
@@ -241,7 +269,7 @@ def isExpiredSessionEvent(resp){
 
 def requestApi(actionApi, params){
 	params.uri = "https://smartthings.neviweb.com/"
-	// log.info("requestApi - ${actionApi}, -> ${params}");
+	log.info("requestApi - ${actionApi}, -> ${params}");
 	switch(actionApi){
 		case "deviceList":
 			httpGet(params) {resp ->
@@ -262,21 +290,30 @@ def requestApi(actionApi, params){
 			def heatingSetpoint;
 			httpGet(params) {resp ->
 				isExpiredSessionEvent(resp)
-				// log.info("Refresh API response [${resp.data}]")
 				data.status = resp.data
 				if (resp.data.errorCode == null){
     				sendEvent(name: 'error', value: "${error(0)}")
 
-					temperature = FormatTemp(data.status.roomTemperature?.value,null)
-					if(!temperature){
-						temperature = FormatTemp(data.status.roomTemperature,null)
+					def temperatureInput,setpointInput
+					if(data.status.airFloorMode == "floor"){
+						temperatureInput = data.status.floorTemperature
+						setpointInput = data.status.floorSetpoint
 					}
-					heatingSetpoint = FormatTemp(data.status.roomSetpoint,null)
-					state.heatingSetpoint = data.status.roomSetpoint
+					else{
+						temperatureInput = data.status.roomTemperature
+						setpointInput = data.status.roomSetpoint
+					}
+					temperature = FormatTemp(temperatureInput?.value,null)
+					if(!temperature){
+						temperature = FormatTemp(temperatureInput,null)
+					}
+					heatingSetpoint = FormatTemp(setpointInput,null)
+					state.heatingSetpoint = setpointInput
 					sendEvent(name: 'temperature', value: temperature, unit: location?.getTemperatureScale())
 					sendEvent(name: 'temperatureMeasurement', value: temperature, unit: location?.getTemperatureScale())
-					sendEvent(name: 'heatingSetpoint', value: heatingSetpoint, unit: location?.getTemperatureScale())
-					sendEvent(name: 'thermostatOperatingState', value: "${data.status.outputPercentDisplay}")
+					sendEvent(name: 'thermostatHeatingSetpoint', value: heatingSetpoint, unit: location?.getTemperatureScale())
+					sendEvent(name: 'thermostatOperatingState', value: data.status.outputPercentDisplay)
+					sendEvent(name: 'switch', value: ((data.status.outputPercentDisplay > 0)?"Heat":"Idle"))
 					sendEvent(name: "thermostatMode", value: "heat")
 				}else{
 					data.error=error(resp.data.errorCode)
@@ -293,6 +330,9 @@ def requestApi(actionApi, params){
 				if(resp?.data?.roomSetpoint){
 					state.heatingSetpoint = resp.data.roomSetpoint
 					sendEvent(name: 'thermostatHeatingSetpoint', value: FormatTemp(resp.data.roomSetpoint,null), unit: location?.getTemperatureScale())
+				}else if(resp?.data?.floorSetpoint){
+					state.heatingSetpoint = resp.data.floorSetpoint
+					sendEvent(name: 'thermostatHeatingSetpoint', value: FormatTemp(resp.data.floorSetpoint,null), unit: location?.getTemperatureScale())
 				}
 				else{
 					sendEvent(name: 'thermostatHeatingSetpoint', value: FormatTemp(state.heatingSetpoint,null), unit: location?.getTemperatureScale())

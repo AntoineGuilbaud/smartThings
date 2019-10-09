@@ -53,7 +53,7 @@ def refresh(){
 
 def StartCommunicationWithServer(data){
 	// log.info "Action \"${data?.action}\" received from Service Manager with session [${data?.session}]"
-	if(!state.deviceId || state.deviceId == true || state.deviceName!= settings.devicename || state.locationName!= settings.locationname ){
+	if( !state.deviceId || state.deviceId == true || state.deviceName != settings.devicename.toLowerCase().replaceAll("\\s", "") || state.locationName != settings.locationname.toLowerCase().replaceAll("\\s", "") ){
 		state.deviceId = deviceId(data?.session)
 	}
 	def params = [
@@ -94,53 +94,60 @@ def StartCommunicationWithServer(data){
 def deviceId(session){
 	data.deviceId = null
 	locationId(session)
-	def params = [
-		uri: "${data.server}",
-        path: "devices",
-       	requestContentType: "application/json, text/javascript, */*; q=0.01",
-        headers: ['Session-Id' : session]
-   	]
-	if(data?.locationId){
-        params.query = ['location$id' : data.locationId]
-	}
-
-   	requestApi("deviceList", params);
-
-    def deviceName=settings.devicename
-    if (deviceName!=null){
-    	deviceName=deviceName.toLowerCase().replaceAll("\\s", "")
-    }
-	data?.deviceId = null
-	data.devices_list.each{var ->
-		try{
-			def name_device=var.name
-			name_device=name_device.toLowerCase().replaceAll("\\s", "")
-			if(name_device==deviceName){
-				if(var.family=="2505" || var.family=="2505-1" || var.family=="2505-HW"){
-					data.deviceId=var.id
-					data.error=false
-					state.deviceName = deviceName;
-					return data.deviceId;
-				}else{
-					data.code=4002
-				}
-			}else{
-				data.code=4001
-			}
-		}catch(e){
-			data.code=4003
+	if(data.locationId){
+		def params = [
+			uri: "${data.server}",
+			path: "devices",
+			requestContentType: "application/json, text/javascript, */*; q=0.01",
+			headers: ['Session-Id' : session]
+		]
+		if(data?.locationId){
+			params.query = ['location$id' : data.locationId]
 		}
-    }
-    if (!data?.deviceId || data.error){
-    	data.error=error(data.code)
-    	sendEvent(name: 'error', value: "${data.error}")
-		data.deviceId=null;
-    	data.error=true
-    }
-	else{
-		data.deviceId
+
+		requestApi("deviceList", params);
+
+		def deviceName=settings.devicename
+		if (deviceName!=null){
+			deviceName=deviceName.toLowerCase().replaceAll("\\s", "")
+		}
+		data?.deviceId = null
+		data.devices_list.each{var ->
+			try{
+				def name_device=var.name
+				name_device=name_device.toLowerCase().replaceAll("\\s", "")
+				if(name_device==deviceName){
+					if(var.family=="2505" || var.family=="2505-1" || var.family=="2505-HW"){
+						data.deviceId=var.id
+						data.error=false
+						state.deviceName = deviceName;
+						state.deviceLocation = settings?.locationname.toLowerCase().replaceAll("\\s", "");
+						return data.deviceId;
+					}else{
+						data.code=4002
+					}
+				}else{
+					data.code=4001
+				}
+			}catch(e){
+				data.code=4003
+			}
+		}
+		if (!data?.deviceId || data.error){
+			data.error=error(data.code)
+			sendEvent(name: 'error', value: "${data.error}")
+			data.deviceId=null;
+			log.warn("${data.error}")
+			data.error=true
+		}
+		else{
+			data.deviceId
+		}
+		return data.deviceId
+	}else{
+		log.warn("${error(3001)}")
+		return null;
 	}
-	return data.deviceId
 }
 
 def locationId(session){
@@ -150,35 +157,34 @@ def locationId(session){
         headers: ['Session-Id' : session]
     ]
     requestApi("locationList",params)
-    def locationName=settings.locationname
+    def locationName=settings?.locationname
 	if(locationName){
-		locationName=locationName.toLowerCase().replaceAll("\\s", "")
+		locationName = locationName.toLowerCase().replaceAll("\\s", "")
 	}
+	data.locationId = null
 	data.location_list.each{var ->    	
     	def name_location
 		try{
-			var.name
-			name_location=var.name
+			name_location = var.name
 		}catch(e){
 			log.error(var)
 		}	
 		if(name_location){
-    		name_location=name_location.toLowerCase().replaceAll("\\s", "")
+    		name_location = name_location.toLowerCase().replaceAll("\\s", "")
 		}else{
 			name_location = "INVALID LOCATION"
 		}
 
     	if(name_location==locationName){
-    		data.locationId=var.id
+    		data.locationId = var.id
     		// log.info("Location ID is :: ${data.locationId}")
 			state.locationName = locationName
     		data.error=null
     	}
     }
 	
-    if (data?.locationId==null){
-    	sendEvent(name: 'error', value: "${error(1)}")
-    	log.error("No location with this name or request error")
+    if (!data.locationId){
+    	sendEvent(name: 'error', value: "${error(3001)}")
     	data.error=true
     }
 }
@@ -191,7 +197,7 @@ def isExpiredSessionEvent(resp){
 
 def requestApi(actionApi, params){
 	params.uri = "https://smartthings.neviweb.com/"
-	// log.info("requestApi - ${actionApi}, -> ${params}");
+	log.info("requestApi - ${actionApi}, -> ${params}");
 	switch(actionApi){
 		case "deviceList":
 			httpGet(params) {resp ->
