@@ -1,6 +1,10 @@
 
 # SmartThings Public Github Repo
 
+Gateway Mode Device Installation How-To here:
+
+https://github.com/AntoineGuilbaud/smartThings/wiki/How-to-install-the-Gateway-Mode-Device
+
 <ul>
 	<li><a href="#driver" title="Titre">Handlers / Pilotes</a>
 		<ul>
