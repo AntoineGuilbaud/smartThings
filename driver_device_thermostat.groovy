@@ -1,6 +1,6 @@
 /**
 Copyright Sinopé Technologies
-1.3.1
+1.3.2
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
 **/
@@ -468,7 +468,7 @@ def error(error){
 def FormatTemp(temp,invert){
 	if (temp!=null){
 		if(invert){
-			float i=Float.valueOf(temp)
+			float i=Float.parseFloat(temp+"")
 			switch (location?.getTemperatureScale()) {
 				case "C":
 					return i.round(2)
@@ -481,7 +481,7 @@ def FormatTemp(temp,invert){
 
 		}else{
 
-			float i=Float.valueOf(temp)
+			float i=Float.parseFloat(temp+"")
 			switch (location?.getTemperatureScale()) {
 				case "C":
 					return i.round(2)
