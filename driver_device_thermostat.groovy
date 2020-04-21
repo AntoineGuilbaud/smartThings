@@ -87,7 +87,7 @@ def setHeatingSetpoint(newSetpoint) {
 	log.trace("Connexion verifiction - ${device.name}")
 	try{
 		state.heatingSetpoint = newSetpoint;
-		sendEvent(name: 'heatingSetpoint', value: FormatTemp(state.heatingSetpoint,null), unit: location?.getTemperatureScale())
+		sendEvent(name: 'heatingSetpoint', value: state.heatingSetpoint, unit: location?.getTemperatureScale())
 		def timeInSeconds = (Math.round(now()/1000))
 		sendEvent(name: "thermostat", value: device.id+": "+timeInSeconds, state: "${newSetpoint}", data: [deviceId: device.id, action: "setHeatingSetpoint", value: "${newSetpoint}", evtTime: timeInSeconds])
 	}
@@ -471,11 +471,11 @@ def FormatTemp(temp,invert){
 			float i=Float.parseFloat(temp+"")
 			switch (location?.getTemperatureScale()) {
 				case "C":
-					return i.round(2)
+					return i.round(1)
 				break;
 
 				case "F":
-					return (Math.round(fToC(i))).toDouble().round(2)
+					return ((fToC(i))).toDouble().round(1)
 				break;
 			}
 
@@ -484,11 +484,11 @@ def FormatTemp(temp,invert){
 			float i=Float.parseFloat(temp+"")
 			switch (location?.getTemperatureScale()) {
 				case "C":
-					return i.round(2)
+					return i.round(1)
 				break;
 
 				case "F":
-					return (Math.round(cToF(i))).toDouble().round(0)
+					return ((cToF(i))).toDouble().round(0)
 				break;
 			}
 		}
