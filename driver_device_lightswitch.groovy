@@ -1,10 +1,16 @@
+/**
+Copyright Sinopé Technologies
+1.3.2
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+**/
 preferences {
 	input("locationname", "text", title: "Name of your neviweb® location", description: "Location name", required: true)
 	input("devicename", "text", title: "Name of your neviweb® lightswitch", description: "Lightswitch name", required: true)
 }
 
 metadata {
-	definition (name: "Sinopé Technologies Inc. Ligthswitch", namespace: "Sinopé Technologies Inc.", author: "Mathieu Virole") {
+	definition (name: "Sinopé Technologies Inc. Ligthswitch", namespace: "Sinopé Technologies Inc.", author: "Sinopé Technologies Inc.") {
 		capability "Switch"
 		capability "Refresh"
 		command "StartCommunicationWithServer"
@@ -35,63 +41,77 @@ def initialize() {
 }
 def on() {
 	def timeInSeconds = (Math.round(now()/1000))
-	log.info("Turning ${device.name} \"ON\"")
+	log.trace("Connexion verifiction - ${device.name}")
 	sendEvent(name: "switch", value: device.id+": "+timeInSeconds, state: "on", data: [deviceId: device.id, action: "on", evtTime: timeInSeconds])
 }
 
 def off() {
 	def timeInSeconds = (Math.round(now()/1000))
+	log.trace("Connexion verifiction - ${device.name}")
 	sendEvent(name: "switch", value:  device.id+": "+timeInSeconds, state: "off", data: [deviceId: device.id, action: "off", evtTime: timeInSeconds])
-	log.info("Turning ${device.name} \"OFF\"")
 }
 
 def refresh(){
 	def timeInSeconds = (Math.round(now()/1000))
+	log.trace("Connexion verifiction - ${device.name}")
 	sendEvent(name: "switch", value:  device.id+": "+timeInSeconds, state: "refresh", data: [deviceId: device.id, action: "refresh", evtTime: timeInSeconds])
-	log.info("Refreshing ${device.name}")
 }
 
 def StartCommunicationWithServer(data){
-	// log.info "Action \"${data?.action}\" received from Service Manager with session [${data?.session}]"
-	if( !state.deviceId || state.deviceId == true || state.deviceName != settings.devicename.toLowerCase().replaceAll("\\s", "") || state.locationName != settings.locationname.toLowerCase().replaceAll("\\s", "") ){
-		state.deviceId = deviceId(data?.session)
-	}
-	def params = [
-		path: "device/${state.deviceId}/attribute",
-		headers: ['Session-Id' : data.session]
-	]
-	if(!state.deviceId){
-		log.warn ("No device id found")
-    	return sendEvent(name: 'error', value: "${error(1004)}")
+	if(data?.error){
+			sendEvent(name: 'error', value: "${data.error}")
+			log.warn("${data.error}")
 	}else{
-		switch(data.action){
-			case "on":
-				params.body = ['intensity' : 100]
-				//params.headers['Content-Type'] = 'application/json'
-				params.contentType = 'application/json'
-				requestApi("setDevice", params);
-				data.action = "refresh"
-				StartCommunicationWithServer(data)
-				break;
-			case "off":
-				params.body = ['intensity' : 0]
-				params.contentType = 'application/json'
-				requestApi("setDevice", params);
-				data.action = "refresh"
-				StartCommunicationWithServer(data)
-				break;
-			case "refresh":
-				params.query = ['attributes' : 'intensity']
-				// params.remove('body')
-				requestApi("deviceData", params);
-				break;
-			default: 
-				log.warn "invalide action"
+		log.info("Action \"${data?.action}\" - \"${device.name}\"")
+		if( !state.deviceId || state.deviceId == true || state.deviceName != settings.devicename.toLowerCase().replaceAll("\\s", "") || state.locationName != settings.locationname.toLowerCase().replaceAll("\\s", "") ){
+			state.deviceId = deviceId(data?.session)
+		}
+		def params = [
+			path: "device/${state.deviceId}/attribute",
+			headers: ['Session-Id' : data.session]
+		]
+		if(!state.deviceId){
+			log.warn ("No device id found")
+			return sendEvent(name: 'error', value: "${error(1004)}")
+		}else{
+			switch(data.action){
+				case "on":
+					params.body = ['intensity' : 100]
+					//params.headers['Content-Type'] = 'application/json'
+					params.contentType = 'application/json'
+					requestApi("setDevice", params);
+					data.action = "refresh"
+					StartCommunicationWithServer(data)
+					break;
+				case "off":
+					params.body = ['intensity' : 0]
+					params.contentType = 'application/json'
+					requestApi("setDevice", params);
+					data.action = "refresh"
+					StartCommunicationWithServer(data)
+					break;
+				case "refresh":
+					params.query = ['attributes' : 'intensity']
+					// params.remove('body')
+					requestApi("deviceData", params);
+					break;
+				default: 
+					log.warn "invalide action"
+			}
 		}
 	}
 }
 
+def askForSessionReset(error){
+	if(error){
+		sendEvent(name: 'error', value: "${error}")
+	}
+	def timeInSeconds = (Math.round(now()/1000))
+	sendEvent(name: "switch", value:  device.id+": "+timeInSeconds, state: "resetSession", data: [deviceId: device.id, action: "resetSession", evtTime: timeInSeconds])
+}
+
 def deviceId(session){
+	log.info("Sync device - ${device.name}")
 	data.deviceId = null
 	locationId(session)
 	if(data.locationId){
@@ -195,15 +215,39 @@ def isExpiredSessionEvent(resp){
 	}
 }
 
+def isDeviceIdValid(session){
+	def oldDeviceId = state.deviceId;
+	if(state.deviceId){
+		state.deviceId = deviceId(session)
+	}
+	if(!state.deviceId){
+		log.warn ("No device id found")
+		sendEvent(name: 'error', value: "${error(1004)}")
+	}else if( oldDeviceId == state.deviceId ){
+		data.error=error(2001)
+		sendEvent(name: 'error', value: "${data.error}")
+		log.error("${data.error}")
+	}else{
+		// data.error=error(2001)
+		// sendEvent(name: 'error', value: "${data.error}")
+		// log.error("${data.error}")
+	}
+	return state.deviceId;
+
+} 
+
 def requestApi(actionApi, params){
 	params.uri = "https://smartthings.neviweb.com/"
-	log.info("requestApi - ${actionApi}, -> ${params}");
+	log.trace("api call : ${actionApi} - ${device.name}");
 	switch(actionApi){
 		case "deviceList":
 			httpGet(params) {resp ->
 				isExpiredSessionEvent(resp)
 				data.devices_list = resp.data
-				
+
+				if(resp?.data?.error?.code == "USRSESSEXP"){
+					askForSessionReset();
+				}
 			}
 		break;
 		case "locationList":
@@ -211,32 +255,53 @@ def requestApi(actionApi, params){
 				isExpiredSessionEvent(resp)
 				data.location_list = resp.data
 				
+				if(resp?.data?.error?.code == "USRSESSEXP"){
+					askForSessionReset();
+				}				
 			}
 		break;
 		case "deviceData":
-			httpGet(params) {resp ->
-				isExpiredSessionEvent(resp)
-				// log.info("Refresh API response [${resp.data}]")
-				data.status = resp.data
-				if (resp.data.errorCode == null){
-    				sendEvent(name: 'error', value: "${error(0)}")
-					if (resp.data.intensity==0){
-						sendEvent(name: "switch", value: "off")
+			try{
+				httpGet(params) {resp ->
+					isExpiredSessionEvent(resp)
+					data.status = resp.data
+					if (resp.data.error == null){
+						sendEvent(name: 'error', value: " ")
+						sendEvent(name: 'status', value: "OK")
+						if (resp.data.intensity==0){
+							sendEvent(name: "switch", value: "off")
+						}else{
+							sendEvent(name: "switch", value: "on")
+						}
 					}else{
-						sendEvent(name: "switch", value: "on")
+						if(resp.data.error.code == "USRSESSEXP"){
+							askForSessionReset();
+						}
+						isDeviceIdValid(params?.headers["Session-Id"]);
 					}
-				}else{
-					data.error=error(resp.data.errorCode)
-					sendEvent(name: 'error', value: "${data.error}")
-					log.error("${data.error}")
+					return resp.data
 				}
-				return resp.data
+			} catch (SocketTimeoutException e) {
+				return isDeviceIdValid(params?.headers["Session-Id"]);
+			} catch (e) {
+				return isDeviceIdValid(params?.headers["Session-Id"]);
 			}
 		break;
 		case "setDevice":
-			httpPut(params){resp -> 
-				isExpiredSessionEvent(resp)
-				// log.info("setDevice -> API response :: ${resp.data}")
+			try{
+				httpPut(params){resp -> 
+					isExpiredSessionEvent(resp);
+					if(resp?.data?.error){
+						if(resp?.data?.error?.code == "USRSESSEXP"){
+							askForSessionReset();
+						}
+						isDeviceIdValid(params.headers["Session-Id"]);
+					}
+				}
+			} catch (SocketTimeoutException e) {
+				return isDeviceIdValid(params?.headers["Session-Id"]);
+			} catch (e) {
+				return isDeviceIdValid(params?.headers["Session-Id"]);
 			}
 		break;
 	}
